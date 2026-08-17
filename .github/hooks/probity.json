@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "PreToolUse": [
+      {
+            "type": "command",
+            "bash": "npx @nizos/probity --agent github-copilot --debug .github/hooks/logs/probity.log"
+      }
+    ]
+  }
+}
