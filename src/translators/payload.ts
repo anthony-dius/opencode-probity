@@ -1,90 +1,93 @@
 /**
- * GitHub Copilot preToolUse hook payload format.
- * Probity expects this envelope when invoked with --agent github-copilot.
+ * Probity action payload for the claude-code agent adapter.
  *
- * Key detail: toolArgs is a JSON *string* on the wire, not a parsed object.
+ * This matches the Claude Code PreToolUse hook schema that probity
+ * validates via Zod. Fields not needed by probity (session_id, etc.)
+ * are omitted — probity's safeParse ignores extra/missing fields
+ * outside the discriminated union.
  */
-export interface CopilotHookPayload {
-  sessionId: string;
-  timestamp: number;
+export interface ProbityAction {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
   cwd: string;
-  toolName: string;
-  toolArgs: string;
 }
 
 /**
- * Legacy alias kept for backward compatibility with adapter imports.
+ * Build a probity payload from an OpenCode tool call.
+ *
+ * OpenCode tool names (Bash, Write, Edit, NotebookEdit) already match
+ * the claude-code adapter's PascalCase expectations. The tool_input
+ * fields are mapped to the schema probity validates:
+ *
+ *   Bash  → { command }
+ *   Write → { file_path, content }
+ *   Edit  → { file_path, old_string, new_string }
+ *
+ * Returns null if the args are insufficient for the given tool.
  */
-export type ProbityAction = CopilotHookPayload;
+export function buildProbityPayload(
+  toolName: string,
+  args: { command?: string; filePath?: string; content?: string; [key: string]: unknown }
+): ProbityAction | null {
+  const cwd = process.cwd();
 
-/**
- * Translate a bash command from OpenCode Bash tool
- * to a GitHub Copilot preToolUse hook payload.
- *
- * Copilot tool name: "bash"
- * toolArgs schema: { command: string }
- *
- * @param command - The bash command string
- * @returns Copilot hook payload
- */
-export function translateBashToProbityAction(command: string): CopilotHookPayload {
-  return {
-    sessionId: 'opencode',
-    timestamp: Date.now(),
-    cwd: process.cwd(),
-    toolName: 'bash',
-    toolArgs: JSON.stringify({ command }),
-  };
-}
+  switch (toolName) {
+    case 'Bash': {
+      if (!args.command || typeof args.command !== 'string') {
+        return null;
+      }
+      return { tool_name: 'Bash', tool_input: { command: args.command }, cwd };
+    }
 
-/**
- * Translate a write operation from OpenCode Write tool
- * to a GitHub Copilot preToolUse hook payload.
- *
- * Copilot tool name: "create"
- * toolArgs schema: { path: string, file_text: string }
- *
- * @param filePath - The absolute file path
- * @param content - The file content being written
- * @returns Copilot hook payload
- */
-export function translateWriteToProbityAction(
-  filePath: string,
-  content: string
-): CopilotHookPayload {
-  return {
-    sessionId: 'opencode',
-    timestamp: Date.now(),
-    cwd: process.cwd(),
-    toolName: 'create',
-    toolArgs: JSON.stringify({ path: filePath, file_text: content }),
-  };
-}
+    case 'Write': {
+      if (
+        !args.filePath ||
+        typeof args.filePath !== 'string' ||
+        args.content === undefined ||
+        typeof args.content !== 'string'
+      ) {
+        return null;
+      }
+      return {
+        tool_name: 'Write',
+        tool_input: { file_path: args.filePath, content: args.content },
+        cwd,
+      };
+    }
 
-/**
- * Translate an edit operation from OpenCode Edit tool
- * to a GitHub Copilot preToolUse hook payload.
- *
- * Copilot tool name: "edit"
- * toolArgs schema: { path: string, old_str: string, new_str: string }
- *
- * Since OpenCode's Edit tool provides the new content but not necessarily the
- * old content, we use the content as new_str and leave old_str empty. This
- * signals to probity that the file is being modified.
- *
- * @param filePath - The absolute file path
- * @param newContent - The new file content
- * @returns Copilot hook payload
- */
-export function translateEditToProbityAction(
-  filePath: string,
-  newContent: string
-): CopilotHookPayload {
-  return {
-    sessionId: 'opencode',
-    timestamp: Date.now(),
-    cwd: process.cwd(),
-    toolName: 'edit',
-    toolArgs: JSON.stringify({ path: filePath, old_str: '', new_str: newContent }),
-  };
+    case 'Edit': {
+      if (
+        !args.filePath ||
+        typeof args.filePath !== 'string' ||
+        args.content === undefined ||
+        typeof args.content !== 'string'
+      ) {
+        return null;
+      }
+      return {
+        tool_name: 'Edit',
+        tool_input: { file_path: args.filePath, old_string: '', new_string: args.content },
+        cwd,
+      };
+    }
+
+    case 'NotebookEdit': {
+      if (
+        !args.filePath ||
+        typeof args.filePath !== 'string' ||
+        args.content === undefined ||
+        typeof args.content !== 'string'
+      ) {
+        return null;
+      }
+      return {
+        tool_name: 'NotebookEdit',
+        tool_input: { notebook_path: args.filePath, new_source: args.content },
+        cwd,
+      };
+    }
+
+    default:
+      return null;
+  }
 }

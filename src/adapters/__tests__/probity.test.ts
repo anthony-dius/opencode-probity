@@ -3,15 +3,8 @@ import { ProbityAdapter } from '../probity.ts';
 import type { ProbityAction } from '../../translators/payload.ts';
 import { EventEmitter } from 'events';
 
-/**
- * Mock child process that emulates actual subprocess behavior
- */
 class MockChildProcess extends EventEmitter {
-  stdin = {
-    write: vi.fn(),
-    end: vi.fn(),
-  };
-
+  stdin = { write: vi.fn(), end: vi.fn() };
   stdout = new EventEmitter();
   stderr = new EventEmitter();
 
@@ -24,387 +17,193 @@ class MockChildProcess extends EventEmitter {
   }
 }
 
-/**
- * Helper to create a valid Copilot hook payload for tests
- */
-function makeBashPayload(command: string): ProbityAction {
-  return {
-    sessionId: 'opencode',
-    timestamp: Date.now(),
-    cwd: '/workspace',
-    toolName: 'bash',
-    toolArgs: JSON.stringify({ command }),
-  };
+function bashPayload(): ProbityAction {
+  return { tool_name: 'Bash', tool_input: { command: 'npm test' }, cwd: '/workspace' };
 }
 
-function makeCreatePayload(path: string, content: string): ProbityAction {
+function writePayload(): ProbityAction {
   return {
-    sessionId: 'opencode',
-    timestamp: Date.now(),
+    tool_name: 'Write',
+    tool_input: { file_path: '/src/file.ts', content: 'export const x = 1;' },
     cwd: '/workspace',
-    toolName: 'create',
-    toolArgs: JSON.stringify({ path, file_text: content }),
   };
 }
 
 describe('ProbityAdapter', () => {
   describe('constructor', () => {
-    it('should create an adapter instance with default options', () => {
-      const adapter = new ProbityAdapter();
-      expect(adapter).toBeDefined();
+    it('should create with defaults', () => {
+      expect(new ProbityAdapter()).toBeDefined();
     });
 
-    it('should accept config path option', () => {
-      const adapter = new ProbityAdapter({ configPath: '/path/to/probity.config.ts' });
-      expect(adapter).toBeDefined();
-    });
-
-    it('should accept debug option', () => {
-      const adapter = new ProbityAdapter({ debug: true });
-      expect(adapter).toBeDefined();
-    });
-
-    it('should accept custom spawn function', () => {
-      const mockSpawn = vi.fn();
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      expect(adapter).toBeDefined();
+    it('should accept all options', () => {
+      expect(
+        new ProbityAdapter({
+          configPath: '/c.ts',
+          debug: true,
+          debugPath: '/d.jsonl',
+          spawn: vi.fn() as any,
+        })
+      ).toBeDefined();
     });
   });
 
   describe('evaluateAction', () => {
-    it('should evaluate a bash command action and return pass verdict', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
+    it('should return pass when stdout is empty (allow)', async () => {
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('npm install');
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(0);
 
-      // Empty stdout means "allow" in Copilot hook protocol
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      const result = await resultPromise;
-
-      expect(result).toEqual({ kind: 'pass' });
+      expect(await p).toEqual({ kind: 'pass' });
     });
 
-    it('should translate Copilot allow response to pass verdict', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
+    it('should return pass on non-zero exit (safe-fail)', async () => {
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('npm install');
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(1);
 
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(
-        JSON.stringify({ permissionDecision: 'allow' })
-      );
-      mockProc.emitClose(0);
-
-      const result = await resultPromise;
-
-      expect(result).toEqual({ kind: 'pass' });
+      expect(await p).toEqual({ kind: 'pass' });
     });
 
-    it('should translate Copilot deny response to violation verdict', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
+    it('should return pass on invalid JSON (safe-fail)', async () => {
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeCreatePayload('/project/src/file.ts', 'export const x = 1;');
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitStdout('not json');
+      proc.emitClose(0);
 
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(
+      expect(await p).toEqual({ kind: 'pass' });
+    });
+
+    it('should parse claude-code deny response as violation', async () => {
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
+
+      const p = adapter.evaluateAction(writePayload());
+      proc.emitStdout(
         JSON.stringify({
-          permissionDecision: 'deny',
-          permissionDecisionReason: 'Missing test for this implementation',
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: 'Probity: Missing test',
+          },
         })
       );
-      mockProc.emitClose(0);
+      proc.emitClose(0);
 
-      const result = await resultPromise;
-
-      expect(result).toEqual({
-        kind: 'violation',
-        reason: 'Missing test for this implementation',
-      });
+      expect(await p).toEqual({ kind: 'violation', reason: 'Probity: Missing test' });
     });
 
-    it('should translate Copilot ask response to violation verdict', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
+    it('should parse claude-code allow response as pass', async () => {
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeCreatePayload('/project/src/file.ts', 'test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitStdout(
         JSON.stringify({
-          permissionDecision: 'ask',
-          permissionDecisionReason: 'Needs review',
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'allow',
+          },
         })
       );
-      mockProc.emitClose(0);
+      proc.emitClose(0);
 
-      const result = await resultPromise;
-
-      expect(result).toEqual({
-        kind: 'violation',
-        reason: 'Needs review',
-      });
+      expect(await p).toEqual({ kind: 'pass' });
     });
 
     it('should provide default reason when deny has no reason', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeCreatePayload('/project/src/file.ts', 'test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(
-        JSON.stringify({ permissionDecision: 'deny' })
-      );
-      mockProc.emitClose(0);
-
-      const result = await resultPromise;
-
-      expect(result).toEqual({
-        kind: 'violation',
-        reason: 'Blocked by probity rule',
-      });
-    });
-
-    it('should default to pass on subprocess error', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('npm run build');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(1); // Non-zero exit code
-
-      const result = await resultPromise;
-
-      expect(result.kind).toBe('pass');
-    });
-
-    it('should default to pass when stdout is empty (Copilot allow)', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('echo test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      const result = await resultPromise;
-
-      expect(result.kind).toBe('pass');
-    });
-
-    it('should pass the Copilot hook payload to probity via stdin as JSON', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeCreatePayload('/project/file.ts', 'test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      expect(mockProc.stdin.write).toHaveBeenCalledWith(JSON.stringify(action));
-      expect(mockProc.stdin.end).toHaveBeenCalled();
-    });
-
-    it('should default to pass on JSON parse error', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout('invalid json {[}');
-      mockProc.emitClose(0);
-
-      const result = await resultPromise;
-
-      expect(result.kind).toBe('pass');
-    });
-  });
-
-  describe('GitHub Copilot hook payload format', () => {
-    it('should spawn probity with --agent github-copilot flag', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('npm run test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      expect(mockSpawn).toHaveBeenCalledWith(
-        'npx',
-        expect.arrayContaining(['@nizos/probity', '--agent', 'github-copilot']),
-        expect.any(Object)
-      );
-    });
-
-    it('should include --config flag when configPath is provided', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-      const configPath = '/path/to/config.ts';
-
-      const adapter = new ProbityAdapter({
-        spawn: mockSpawn as any,
-        configPath,
-      });
-      const action = makeBashPayload('npm install');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      expect(mockSpawn).toHaveBeenCalledWith(
-        'npx',
-        expect.arrayContaining(['--config', configPath]),
-        expect.any(Object)
-      );
-    });
-
-    it('should use stdio pipe configuration', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      expect(mockSpawn).toHaveBeenCalledWith('npx', expect.any(Array), {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    });
-  });
-
-  describe('verdict parsing from Copilot response', () => {
-    it('should parse allow response as pass verdict', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('echo test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ permissionDecision: 'allow' }));
-      mockProc.emitClose(0);
-
-      const result = await resultPromise;
-
-      expect(result.kind).toBe('pass');
-    });
-
-    it('should parse deny response as violation verdict with reason', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeCreatePayload('/project/file.ts', 'test');
-
-      const violationReason = 'This violates the TDD rule';
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(
+      const p = adapter.evaluateAction(writePayload());
+      proc.emitStdout(
         JSON.stringify({
-          permissionDecision: 'deny',
-          permissionDecisionReason: violationReason,
+          hookSpecificOutput: { permissionDecision: 'deny' },
         })
       );
-      mockProc.emitClose(0);
+      proc.emitClose(0);
 
-      const result = await resultPromise;
+      expect(await p).toEqual({ kind: 'violation', reason: 'Blocked by probity rule' });
+    });
 
-      expect(result.kind).toBe('violation');
-      if (result.kind === 'violation') {
-        expect(result.reason).toBe(violationReason);
-      }
+    it('should send the payload to stdin as JSON', async () => {
+      const proc = new MockChildProcess();
+      const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
+      const action = writePayload();
+
+      const p = adapter.evaluateAction(action);
+      proc.emitClose(0);
+      await p;
+
+      expect(proc.stdin.write).toHaveBeenCalledWith(JSON.stringify(action));
+      expect(proc.stdin.end).toHaveBeenCalled();
     });
   });
 
-  describe('debug option', () => {
-    it('should include --debug flag when debugPath is provided', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-      const debugPath = '/tmp/probity-debug.jsonl';
+  describe('CLI flags', () => {
+    it('should spawn with --agent claude-code', async () => {
+      const proc = new MockChildProcess();
+      const spawn = vi.fn(() => proc);
+      const adapter = new ProbityAdapter({ spawn: spawn as any });
 
-      const adapter = new ProbityAdapter({
-        spawn: mockSpawn as any,
-        debugPath,
-      });
-      const action = makeBashPayload('npm run test');
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(0);
+      await p;
 
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      expect(mockSpawn).toHaveBeenCalledWith(
+      expect(spawn).toHaveBeenCalledWith(
         'npx',
-        expect.arrayContaining(['--debug', debugPath]),
+        expect.arrayContaining(['@nizos/probity', '--agent', 'claude-code']),
         expect.any(Object)
       );
     });
 
-    it('should not include --debug flag when debugPath is not provided', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
+    it('should include --config when provided', async () => {
+      const proc = new MockChildProcess();
+      const spawn = vi.fn(() => proc);
+      const adapter = new ProbityAdapter({ spawn: spawn as any, configPath: '/c.ts' });
 
-      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action = makeBashPayload('echo test');
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(0);
+      await p;
 
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      const callArgs = mockSpawn.mock.calls[0];
-      expect(callArgs[1]).not.toEqual(expect.arrayContaining(['--debug']));
-    });
-
-    it('should work with both --config and --debug flags', async () => {
-      const mockProc = new MockChildProcess();
-      const mockSpawn = vi.fn(() => mockProc);
-      const configPath = '/path/to/config.ts';
-      const debugPath = '/tmp/probity-debug.jsonl';
-
-      const adapter = new ProbityAdapter({
-        spawn: mockSpawn as any,
-        configPath,
-        debugPath,
-      });
-      const action = makeBashPayload('test');
-
-      const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitClose(0);
-
-      await resultPromise;
-
-      expect(mockSpawn).toHaveBeenCalledWith(
+      expect(spawn).toHaveBeenCalledWith(
         'npx',
-        expect.arrayContaining(['--config', configPath, '--debug', debugPath]),
+        expect.arrayContaining(['--config', '/c.ts']),
         expect.any(Object)
       );
+    });
+
+    it('should include --debug when debugPath provided', async () => {
+      const proc = new MockChildProcess();
+      const spawn = vi.fn(() => proc);
+      const adapter = new ProbityAdapter({ spawn: spawn as any, debugPath: '/d.jsonl' });
+
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(0);
+      await p;
+
+      expect(spawn).toHaveBeenCalledWith(
+        'npx',
+        expect.arrayContaining(['--debug', '/d.jsonl']),
+        expect.any(Object)
+      );
+    });
+
+    it('should not include --debug when debugPath not provided', async () => {
+      const proc = new MockChildProcess();
+      const spawn = vi.fn(() => proc);
+      const adapter = new ProbityAdapter({ spawn: spawn as any });
+
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(0);
+      await p;
+
+      expect(spawn.mock.calls[0][1]).not.toEqual(expect.arrayContaining(['--debug']));
     });
   });
 });

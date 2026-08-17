@@ -3,23 +3,22 @@ import type { ChildProcess } from 'child_process';
 import type { ProbityAction } from '../translators/payload.ts';
 
 /**
- * Probity verdict response types (internal to the plugin)
+ * Probity verdict — the plugin's internal representation.
  */
 export type ProbityVerdict =
   | { kind: 'pass' }
   | { kind: 'violation'; reason: string };
 
 /**
- * GitHub Copilot hook response format returned by probity CLI
+ * Claude Code hook response shape returned by probity CLI.
  */
-interface CopilotHookResponse {
-  permissionDecision: 'allow' | 'deny' | 'ask';
-  permissionDecisionReason?: string;
+interface ClaudeCodeHookResponse {
+  hookSpecificOutput: {
+    permissionDecision: 'allow' | 'deny';
+    permissionDecisionReason?: string;
+  };
 }
 
-/**
- * ProbityAdapter options
- */
 interface ProbityAdapterOptions {
   configPath?: string;
   debug?: boolean;
@@ -28,9 +27,8 @@ interface ProbityAdapterOptions {
 }
 
 /**
- * Adapter that communicates with probity CLI
- * Sends GitHub Copilot preToolUse hook payloads and translates
- * Copilot hook responses back to internal verdict types.
+ * Adapter that spawns the probity CLI with --agent claude-code
+ * and translates its response into a ProbityVerdict.
  */
 export class ProbityAdapter {
   private configPath?: string;
@@ -45,17 +43,9 @@ export class ProbityAdapter {
     this.spawn = options?.spawn ?? defaultSpawn;
   }
 
-  /**
-   * Evaluate an action against probity rules
-   * Spawns probity subprocess and returns verdict
-   *
-   * @param action - The Copilot hook payload to evaluate
-   * @returns Promise resolving to probity verdict
-   */
   async evaluateAction(action: ProbityAction): Promise<ProbityVerdict> {
     return new Promise((resolve) => {
-      // Build the probity CLI arguments
-      const args = ['@nizos/probity', '--agent', 'github-copilot'];
+      const args = ['@nizos/probity', '--agent', 'claude-code'];
 
       if (this.configPath) {
         args.push('--config', this.configPath);
@@ -65,61 +55,42 @@ export class ProbityAdapter {
         args.push('--debug', this.debugPath);
       }
 
-      // Spawn probity subprocess
       const proc = this.spawn('npx', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
       }) as ChildProcess;
 
       let stdoutData = '';
 
-      // Collect stdout data
       proc.stdout?.on('data', (data: Buffer) => {
         stdoutData += data.toString();
       });
 
-      // Handle process close
       proc.on('close', (code: number) => {
-        // If subprocess exited with error, default to pass (safe-fail)
-        if (code !== 0) {
-          resolve({ kind: 'pass' });
-          return;
-        }
-
-        // Empty stdout means "no opinion" — probity allows the action
-        if (!stdoutData.trim()) {
+        // Non-zero exit or empty stdout → pass (safe-fail / "no opinion")
+        if (code !== 0 || !stdoutData.trim()) {
           resolve({ kind: 'pass' });
           return;
         }
 
         try {
-          const response = JSON.parse(stdoutData) as CopilotHookResponse;
-          resolve(this.translateCopilotResponse(response));
+          const response = JSON.parse(stdoutData) as ClaudeCodeHookResponse;
+          const decision = response.hookSpecificOutput;
+
+          if (decision.permissionDecision === 'deny') {
+            resolve({
+              kind: 'violation',
+              reason: decision.permissionDecisionReason ?? 'Blocked by probity rule',
+            });
+          } else {
+            resolve({ kind: 'pass' });
+          }
         } catch {
-          // If JSON parsing fails, default to pass (safe-fail)
           resolve({ kind: 'pass' });
         }
       });
 
-      // Send the Copilot hook payload to probity via stdin
       proc.stdin?.write(JSON.stringify(action));
       proc.stdin?.end();
     });
-  }
-
-  /**
-   * Translate a GitHub Copilot hook response to an internal ProbityVerdict.
-   *
-   * - "allow" or empty → pass
-   * - "deny" or "ask"  → violation with reason
-   */
-  private translateCopilotResponse(response: CopilotHookResponse): ProbityVerdict {
-    if (response.permissionDecision === 'allow') {
-      return { kind: 'pass' };
-    }
-
-    return {
-      kind: 'violation',
-      reason: response.permissionDecisionReason ?? 'Blocked by probity rule',
-    };
   }
 }

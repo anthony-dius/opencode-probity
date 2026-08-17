@@ -1,185 +1,103 @@
 import { describe, it, expect } from 'vitest';
-import {
-  translateBashToProbityAction,
-  translateWriteToProbityAction,
-  translateEditToProbityAction,
-} from '../payload.ts';
+import { buildProbityPayload } from '../payload.ts';
 
-describe('Payload Translator', () => {
-  describe('translateBashToProbityAction', () => {
-    it('should translate a bash command to a Copilot hook payload', () => {
-      const before = Date.now();
-      const result = translateBashToProbityAction('npm install');
-      const after = Date.now();
+describe('buildProbityPayload', () => {
+  describe('Bash', () => {
+    it('should build a Bash payload', () => {
+      const result = buildProbityPayload('Bash', { command: 'npm test' });
 
-      expect(result.sessionId).toBe('opencode');
-      expect(result.timestamp).toBeGreaterThanOrEqual(before);
-      expect(result.timestamp).toBeLessThanOrEqual(after);
-      expect(result.cwd).toBe(process.cwd());
-      expect(result.toolName).toBe('bash');
-      expect(JSON.parse(result.toolArgs)).toEqual({ command: 'npm install' });
-    });
-
-    it('should handle complex bash commands with pipes', () => {
-      const bashCommand = 'grep -r "TODO" src/ | wc -l';
-      const result = translateBashToProbityAction(bashCommand);
-
-      expect(result.toolName).toBe('bash');
-      expect(JSON.parse(result.toolArgs)).toEqual({ command: bashCommand });
-    });
-
-    it('should handle bash commands with environment variables', () => {
-      const bashCommand = 'NODE_ENV=test npm run build';
-      const result = translateBashToProbityAction(bashCommand);
-
-      expect(result.toolName).toBe('bash');
-      expect(JSON.parse(result.toolArgs)).toEqual({ command: bashCommand });
-    });
-
-    it('should handle bash commands with quotes', () => {
-      const bashCommand = 'echo "Hello World"';
-      const result = translateBashToProbityAction(bashCommand);
-
-      expect(result.toolName).toBe('bash');
-      expect(JSON.parse(result.toolArgs)).toEqual({ command: bashCommand });
-    });
-
-    it('should produce valid JSON in toolArgs', () => {
-      const result = translateBashToProbityAction('npm test');
-
-      expect(() => JSON.parse(result.toolArgs)).not.toThrow();
-    });
-  });
-
-  describe('translateWriteToProbityAction', () => {
-    it('should translate a write tool call to a Copilot create payload', () => {
-      const filePath = '/Users/anthony/project/src/index.ts';
-      const content = 'export const greeting = "hello";';
-
-      const result = translateWriteToProbityAction(filePath, content);
-
-      expect(result.sessionId).toBe('opencode');
-      expect(result.timestamp).toBe(Date.now());
-      expect(result.cwd).toBe(process.cwd());
-      expect(result.toolName).toBe('create');
-      expect(JSON.parse(result.toolArgs)).toEqual({
-        path: filePath,
-        file_text: content,
+      expect(result).toEqual({
+        tool_name: 'Bash',
+        tool_input: { command: 'npm test' },
+        cwd: process.cwd(),
       });
     });
 
-    it('should preserve absolute paths in toolArgs', () => {
-      const filePath = '/absolute/path/to/file.ts';
-      const content = 'const x = 1;';
+    it('should handle complex commands with pipes', () => {
+      const result = buildProbityPayload('Bash', { command: 'grep -r "TODO" src/ | wc -l' });
 
-      const result = translateWriteToProbityAction(filePath, content);
-      const parsed = JSON.parse(result.toolArgs);
-
-      expect(parsed.path).toBe('/absolute/path/to/file.ts');
+      expect(result!.tool_input).toEqual({ command: 'grep -r "TODO" src/ | wc -l' });
     });
 
-    it('should preserve multi-line content in toolArgs', () => {
-      const filePath = '/project/file.ts';
-      const content = `function hello() {
-  console.log('world');
-}`;
-
-      const result = translateWriteToProbityAction(filePath, content);
-      const parsed = JSON.parse(result.toolArgs);
-
-      expect(parsed.file_text).toBe(content);
-      expect(parsed.file_text).toContain('\n');
+    it('should return null when command is missing', () => {
+      expect(buildProbityPayload('Bash', {})).toBeNull();
     });
 
-    it('should handle empty file content', () => {
-      const filePath = '/project/empty.ts';
-      const content = '';
-
-      const result = translateWriteToProbityAction(filePath, content);
-      const parsed = JSON.parse(result.toolArgs);
-
-      expect(parsed).toEqual({
-        path: '/project/empty.ts',
-        file_text: '',
-      });
-    });
-
-    it('should handle file content with special characters', () => {
-      const filePath = '/project/file.ts';
-      const content = 'const str = "quote\\"here"; // comment\nconst x = 1;';
-
-      const result = translateWriteToProbityAction(filePath, content);
-      const parsed = JSON.parse(result.toolArgs);
-
-      expect(parsed.file_text).toBe(content);
+    it('should return null when command is not a string', () => {
+      expect(buildProbityPayload('Bash', { command: 123 as any })).toBeNull();
     });
   });
 
-  describe('translateEditToProbityAction', () => {
-    it('should translate an edit tool call to a Copilot edit payload', () => {
-      const filePath = '/Users/anthony/project/src/file.ts';
-      const newContent = 'const updated = true;';
+  describe('Write', () => {
+    it('should build a Write payload with file_path and content', () => {
+      const result = buildProbityPayload('Write', {
+        filePath: '/src/index.ts',
+        content: 'export const x = 1;',
+      });
 
-      const result = translateEditToProbityAction(filePath, newContent);
-
-      expect(result.sessionId).toBe('opencode');
-      expect(result.timestamp).toBe(Date.now());
-      expect(result.cwd).toBe(process.cwd());
-      expect(result.toolName).toBe('edit');
-      expect(JSON.parse(result.toolArgs)).toEqual({
-        path: filePath,
-        old_str: '',
-        new_str: newContent,
+      expect(result).toEqual({
+        tool_name: 'Write',
+        tool_input: { file_path: '/src/index.ts', content: 'export const x = 1;' },
+        cwd: process.cwd(),
       });
     });
 
-    it('should use edit toolName (not create)', () => {
-      const filePath = '/project/edited.ts';
-      const content = 'export function updated() {}';
+    it('should handle empty content', () => {
+      const result = buildProbityPayload('Write', { filePath: '/empty.ts', content: '' });
 
-      const result = translateEditToProbityAction(filePath, content);
-
-      expect(result.toolName).toBe('edit');
+      expect(result!.tool_input).toEqual({ file_path: '/empty.ts', content: '' });
     });
 
-    it('should handle edit with multi-line content', () => {
-      const filePath = '/project/file.ts';
-      const content = `// Updated file
-function main() {
-  return 'done';
-}`;
+    it('should return null when filePath is missing', () => {
+      expect(buildProbityPayload('Write', { content: 'x' })).toBeNull();
+    });
 
-      const result = translateEditToProbityAction(filePath, content);
-      const parsed = JSON.parse(result.toolArgs);
-
-      expect(parsed.new_str).toBe(content);
-      expect(parsed.path).toBe('/project/file.ts');
+    it('should return null when content is missing', () => {
+      expect(buildProbityPayload('Write', { filePath: '/f.ts' })).toBeNull();
     });
   });
 
-  describe('Copilot hook payload envelope', () => {
-    it('should always include sessionId, timestamp, cwd, toolName, toolArgs', () => {
-      const result = translateBashToProbityAction('echo hello');
+  describe('Edit', () => {
+    it('should build an Edit payload with old_string and new_string', () => {
+      const result = buildProbityPayload('Edit', {
+        filePath: '/src/index.ts',
+        content: 'const y = 2;',
+      });
 
-      expect(result).toHaveProperty('sessionId');
-      expect(result).toHaveProperty('timestamp');
-      expect(result).toHaveProperty('cwd');
-      expect(result).toHaveProperty('toolName');
-      expect(result).toHaveProperty('toolArgs');
+      expect(result).toEqual({
+        tool_name: 'Edit',
+        tool_input: { file_path: '/src/index.ts', old_string: '', new_string: 'const y = 2;' },
+        cwd: process.cwd(),
+      });
     });
 
-    it('should have toolArgs as a JSON string, not an object', () => {
-      const result = translateWriteToProbityAction('/file.ts', 'content');
+    it('should return null when filePath is missing', () => {
+      expect(buildProbityPayload('Edit', { content: 'x' })).toBeNull();
+    });
+  });
 
-      expect(typeof result.toolArgs).toBe('string');
-      expect(() => JSON.parse(result.toolArgs)).not.toThrow();
+  describe('NotebookEdit', () => {
+    it('should build a NotebookEdit payload', () => {
+      const result = buildProbityPayload('NotebookEdit', {
+        filePath: '/notebook.ipynb',
+        content: '{}',
+      });
+
+      expect(result).toEqual({
+        tool_name: 'NotebookEdit',
+        tool_input: { notebook_path: '/notebook.ipynb', new_source: '{}' },
+        cwd: process.cwd(),
+      });
+    });
+  });
+
+  describe('unknown tools', () => {
+    it('should return null for Read', () => {
+      expect(buildProbityPayload('Read', {})).toBeNull();
     });
 
-    it('should use numeric timestamp (epoch ms)', () => {
-      const result = translateBashToProbityAction('test');
-
-      expect(typeof result.timestamp).toBe('number');
-      expect(result.timestamp).toBeGreaterThan(0);
+    it('should return null for Grep', () => {
+      expect(buildProbityPayload('Grep', {})).toBeNull();
     });
   });
 });
