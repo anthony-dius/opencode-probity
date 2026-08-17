@@ -10,6 +10,7 @@ export interface ProbityAction {
   tool_name: string;
   tool_input: Record<string, unknown>;
   cwd: string;
+  transcript_path?: string;
 }
 
 /**
@@ -27,16 +28,18 @@ export interface ProbityAction {
  */
 export function buildProbityPayload(
   toolName: string,
-  args: { command?: string; filePath?: string; content?: string; [key: string]: unknown }
+  args: { command?: string; filePath?: string; content?: string; [key: string]: unknown },
+  transcriptPath?: string
 ): ProbityAction | null {
   const cwd = process.cwd();
+  const base = { cwd, ...(transcriptPath ? { transcript_path: transcriptPath } : {}) };
 
   switch (toolName) {
     case 'Bash': {
       if (!args.command || typeof args.command !== 'string') {
         return null;
       }
-      return { tool_name: 'Bash', tool_input: { command: args.command }, cwd };
+      return { tool_name: 'Bash', tool_input: { command: args.command }, ...base };
     }
 
     case 'Write': {
@@ -51,7 +54,7 @@ export function buildProbityPayload(
       return {
         tool_name: 'Write',
         tool_input: { file_path: args.filePath, content: args.content },
-        cwd,
+        ...base,
       };
     }
 
@@ -67,7 +70,7 @@ export function buildProbityPayload(
       return {
         tool_name: 'Edit',
         tool_input: { file_path: args.filePath, old_string: '', new_string: args.content },
-        cwd,
+        ...base,
       };
     }
 
@@ -83,7 +86,7 @@ export function buildProbityPayload(
       return {
         tool_name: 'NotebookEdit',
         tool_input: { notebook_path: args.filePath, new_source: args.content },
-        cwd,
+        ...base,
       };
     }
 

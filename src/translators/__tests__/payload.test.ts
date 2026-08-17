@@ -100,4 +100,18 @@ describe('buildProbityPayload', () => {
       expect(buildProbityPayload('Grep', {})).toBeNull();
     });
   });
+
+  describe('transcript_path', () => {
+    it('should include transcript_path when provided', () => {
+      const result = buildProbityPayload('Bash', { command: 'echo hi' }, '/tmp/t.jsonl');
+
+      expect(result!.transcript_path).toBe('/tmp/t.jsonl');
+    });
+
+    it('should omit transcript_path when not provided', () => {
+      const result = buildProbityPayload('Bash', { command: 'echo hi' });
+
+      expect(result!.transcript_path).toBeUndefined();
+    });
+  });
 });

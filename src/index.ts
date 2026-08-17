@@ -19,8 +19,8 @@ export { createProbityHook } from './hooks/preToolUse.ts';
  * Registers the tool.execute.before hook to evaluate tool usage
  * against probity rules. This enables pattern enforcement like TDD.
  */
-export const ProbityPlugin: Plugin = async () => {
-  const probityHook = createProbityHook();
+export const ProbityPlugin: Plugin = async ({ client }) => {
+  const probityHook = createProbityHook({ client });
 
   return {
     'tool.execute.before': probityHook,

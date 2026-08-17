@@ -91,6 +91,74 @@ describe('createProbityHook', () => {
     });
   });
 
+  describe('session transcript', () => {
+    it('should include transcript_path when client and sessionID are provided', async () => {
+      const adapter = mockAdapter({ kind: 'pass' });
+      const client = {
+        session: {
+          messages: vi.fn(async () => ({
+            data: [
+              {
+                info: { role: 'user', id: 'u1' },
+                parts: [{ type: 'text', text: 'Add a feature' }],
+              },
+            ],
+          })),
+        },
+      };
+
+      const hook = createProbityHook({ adapter: adapter as any, client: client as any });
+      await hook({ tool: 'Bash', sessionID: 'sess-1' }, { args: { command: 'echo hi' } });
+
+      const payload = adapter.evaluateAction.mock.calls[0][0];
+      expect(payload.transcript_path).toBeDefined();
+      expect(typeof payload.transcript_path).toBe('string');
+    });
+
+    it('should omit transcript_path when client is not provided', async () => {
+      const adapter = mockAdapter({ kind: 'pass' });
+      const hook = createProbityHook({ adapter: adapter as any });
+
+      await hook({ tool: 'Bash', sessionID: 'sess-1' }, { args: { command: 'echo hi' } });
+
+      const payload = adapter.evaluateAction.mock.calls[0][0];
+      expect(payload.transcript_path).toBeUndefined();
+    });
+
+    it('should omit transcript_path when sessionID is missing', async () => {
+      const adapter = mockAdapter({ kind: 'pass' });
+      const client = {
+        session: { messages: vi.fn(async () => ({ data: [] })) },
+      };
+      const hook = createProbityHook({ adapter: adapter as any, client: client as any });
+
+      await hook({ tool: 'Bash' }, { args: { command: 'echo hi' } });
+
+      const payload = adapter.evaluateAction.mock.calls[0][0];
+      expect(payload.transcript_path).toBeUndefined();
+      expect(client.session.messages).not.toHaveBeenCalled();
+    });
+
+    it('should proceed without transcript if client call fails', async () => {
+      const adapter = mockAdapter({ kind: 'pass' });
+      const client = {
+        session: {
+          messages: vi.fn(async () => {
+            throw new Error('network error');
+          }),
+        },
+      };
+      const hook = createProbityHook({ adapter: adapter as any, client: client as any });
+
+      await hook({ tool: 'Bash', sessionID: 'sess-1' }, { args: { command: 'echo hi' } });
+
+      // Should still evaluate, just without transcript
+      expect(adapter.evaluateAction).toHaveBeenCalled();
+      const payload = adapter.evaluateAction.mock.calls[0][0];
+      expect(payload.transcript_path).toBeUndefined();
+    });
+  });
+
   describe('error handling', () => {
     it('should allow on adapter error (safe-fail)', async () => {
       const adapter = {

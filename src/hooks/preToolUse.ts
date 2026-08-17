@@ -1,9 +1,21 @@
 import { ProbityAdapter } from '../adapters/probity.ts';
 import { buildProbityPayload } from '../translators/payload.ts';
+import { writeTranscript } from '../translators/transcript.ts';
 import { findProbityConfig } from '../config/discovery.ts';
+
+/**
+ * Minimal client interface — only the method we need.
+ * Avoids a hard dependency on @opencode-ai/sdk types.
+ */
+interface SessionClient {
+  session: {
+    messages(opts: { path: { id: string } }): Promise<{ data?: unknown[] }>;
+  };
+}
 
 interface ProbityHookOptions {
   adapter?: ProbityAdapter;
+  client?: SessionClient;
   debug?: boolean;
   configPath?: string;
   debugPath?: string;
@@ -11,6 +23,7 @@ interface ProbityHookOptions {
 
 interface ToolInput {
   tool: string;
+  sessionID?: string;
 }
 
 interface ToolOutput {
@@ -33,6 +46,7 @@ const EVALUATED_TOOLS = new Set(['Bash', 'Write', 'Edit', 'NotebookEdit']);
  */
 export function createProbityHook(options?: ProbityHookOptions) {
   let adapter = options?.adapter;
+  const client = options?.client;
   const debug = options?.debug ?? false;
   const configPath = options?.configPath;
   const debugPath = options?.debugPath;
@@ -53,7 +67,20 @@ export function createProbityHook(options?: ProbityHookOptions) {
         });
       }
 
-      const payload = buildProbityPayload(input.tool, output.args);
+      // Build transcript if we have a client and session ID
+      let transcriptPath: string | undefined;
+      if (client && input.sessionID) {
+        try {
+          const result = await client.session.messages({ path: { id: input.sessionID } });
+          if (result.data && Array.isArray(result.data)) {
+            transcriptPath = writeTranscript(input.sessionID, result.data as any);
+          }
+        } catch {
+          // Transcript is best-effort — proceed without it
+        }
+      }
+
+      const payload = buildProbityPayload(input.tool, output.args, transcriptPath);
 
       if (!payload) {
         return;
