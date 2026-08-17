@@ -15,6 +15,7 @@ export const ProbityDebugPlugin: Plugin = async () => {
 
   const hook = createProbityHook({
     debugPath,
+    debug: true,
   });
 
   return {

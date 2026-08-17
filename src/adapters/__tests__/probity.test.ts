@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ProbityAdapter } from '../probity.ts';
 import type { ProbityAction } from '../../translators/payload.ts';
 import { EventEmitter } from 'events';
@@ -22,6 +22,29 @@ class MockChildProcess extends EventEmitter {
   emitClose(code: number) {
     this.emit('close', code);
   }
+}
+
+/**
+ * Helper to create a valid Copilot hook payload for tests
+ */
+function makeBashPayload(command: string): ProbityAction {
+  return {
+    sessionId: 'opencode',
+    timestamp: Date.now(),
+    cwd: '/workspace',
+    toolName: 'bash',
+    toolArgs: JSON.stringify({ command }),
+  };
+}
+
+function makeCreatePayload(path: string, content: string): ProbityAction {
+  return {
+    sessionId: 'opencode',
+    timestamp: Date.now(),
+    cwd: '/workspace',
+    toolName: 'create',
+    toolArgs: JSON.stringify({ path, file_text: content }),
+  };
 }
 
 describe('ProbityAdapter', () => {
@@ -54,40 +77,47 @@ describe('ProbityAdapter', () => {
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'npm install',
-      };
+      const action = makeBashPayload('npm install');
 
-      // Set up the async response
+      // Empty stdout means "allow" in Copilot hook protocol
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       const result = await resultPromise;
 
-      expect(result).toEqual({
-        kind: 'pass',
-      });
+      expect(result).toEqual({ kind: 'pass' });
     });
 
-    it('should evaluate a write action and return violation verdict with reason', async () => {
+    it('should translate Copilot allow response to pass verdict', async () => {
       const mockProc = new MockChildProcess();
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'write',
-        path: '/project/src/file.ts',
-        content: 'export const x = 1;',
-      };
+      const action = makeBashPayload('npm install');
 
       const resultPromise = adapter.evaluateAction(action);
-      const violationReason = 'Missing test for this implementation';
+      mockProc.emitStdout(
+        JSON.stringify({ permissionDecision: 'allow' })
+      );
+      mockProc.emitClose(0);
+
+      const result = await resultPromise;
+
+      expect(result).toEqual({ kind: 'pass' });
+    });
+
+    it('should translate Copilot deny response to violation verdict', async () => {
+      const mockProc = new MockChildProcess();
+      const mockSpawn = vi.fn(() => mockProc);
+
+      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
+      const action = makeCreatePayload('/project/src/file.ts', 'export const x = 1;');
+
+      const resultPromise = adapter.evaluateAction(action);
       mockProc.emitStdout(
         JSON.stringify({
-          kind: 'violation',
-          reason: violationReason,
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'Missing test for this implementation',
         })
       );
       mockProc.emitClose(0);
@@ -96,7 +126,52 @@ describe('ProbityAdapter', () => {
 
       expect(result).toEqual({
         kind: 'violation',
-        reason: violationReason,
+        reason: 'Missing test for this implementation',
+      });
+    });
+
+    it('should translate Copilot ask response to violation verdict', async () => {
+      const mockProc = new MockChildProcess();
+      const mockSpawn = vi.fn(() => mockProc);
+
+      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
+      const action = makeCreatePayload('/project/src/file.ts', 'test');
+
+      const resultPromise = adapter.evaluateAction(action);
+      mockProc.emitStdout(
+        JSON.stringify({
+          permissionDecision: 'ask',
+          permissionDecisionReason: 'Needs review',
+        })
+      );
+      mockProc.emitClose(0);
+
+      const result = await resultPromise;
+
+      expect(result).toEqual({
+        kind: 'violation',
+        reason: 'Needs review',
+      });
+    });
+
+    it('should provide default reason when deny has no reason', async () => {
+      const mockProc = new MockChildProcess();
+      const mockSpawn = vi.fn(() => mockProc);
+
+      const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
+      const action = makeCreatePayload('/project/src/file.ts', 'test');
+
+      const resultPromise = adapter.evaluateAction(action);
+      mockProc.emitStdout(
+        JSON.stringify({ permissionDecision: 'deny' })
+      );
+      mockProc.emitClose(0);
+
+      const result = await resultPromise;
+
+      expect(result).toEqual({
+        kind: 'violation',
+        reason: 'Blocked by probity rule',
       });
     });
 
@@ -105,29 +180,22 @@ describe('ProbityAdapter', () => {
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'npm run build',
-      };
+      const action = makeBashPayload('npm run build');
 
       const resultPromise = adapter.evaluateAction(action);
       mockProc.emitClose(1); // Non-zero exit code
 
       const result = await resultPromise;
 
-      // Should default to 'pass' on error (safe-fail approach)
       expect(result.kind).toBe('pass');
     });
 
-    it('should default to pass when stdout is empty', async () => {
+    it('should default to pass when stdout is empty (Copilot allow)', async () => {
       const mockProc = new MockChildProcess();
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'echo test',
-      };
+      const action = makeBashPayload('echo test');
 
       const resultPromise = adapter.evaluateAction(action);
       mockProc.emitClose(0);
@@ -137,19 +205,14 @@ describe('ProbityAdapter', () => {
       expect(result.kind).toBe('pass');
     });
 
-    it('should pass the action to probity via stdin as JSON', async () => {
+    it('should pass the Copilot hook payload to probity via stdin as JSON', async () => {
       const mockProc = new MockChildProcess();
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'write',
-        path: '/project/file.ts',
-        content: 'test',
-      };
+      const action = makeCreatePayload('/project/file.ts', 'test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;
@@ -163,10 +226,7 @@ describe('ProbityAdapter', () => {
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'test',
-      };
+      const action = makeBashPayload('test');
 
       const resultPromise = adapter.evaluateAction(action);
       mockProc.emitStdout('invalid json {[}');
@@ -184,13 +244,9 @@ describe('ProbityAdapter', () => {
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'npm run test',
-      };
+      const action = makeBashPayload('npm run test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;
@@ -211,13 +267,9 @@ describe('ProbityAdapter', () => {
         spawn: mockSpawn as any,
         configPath,
       });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'npm install',
-      };
+      const action = makeBashPayload('npm install');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;
@@ -234,13 +286,9 @@ describe('ProbityAdapter', () => {
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'test',
-      };
+      const action = makeBashPayload('test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;
@@ -251,19 +299,16 @@ describe('ProbityAdapter', () => {
     });
   });
 
-  describe('verdict parsing', () => {
-    it('should parse pass verdict from probity response', async () => {
+  describe('verdict parsing from Copilot response', () => {
+    it('should parse allow response as pass verdict', async () => {
       const mockProc = new MockChildProcess();
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'echo test',
-      };
+      const action = makeBashPayload('echo test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
+      mockProc.emitStdout(JSON.stringify({ permissionDecision: 'allow' }));
       mockProc.emitClose(0);
 
       const result = await resultPromise;
@@ -271,23 +316,19 @@ describe('ProbityAdapter', () => {
       expect(result.kind).toBe('pass');
     });
 
-    it('should parse violation verdict with reason', async () => {
+    it('should parse deny response as violation verdict with reason', async () => {
       const mockProc = new MockChildProcess();
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'write',
-        path: '/project/file.ts',
-        content: 'test',
-      };
+      const action = makeCreatePayload('/project/file.ts', 'test');
 
       const violationReason = 'This violates the TDD rule';
       const resultPromise = adapter.evaluateAction(action);
       mockProc.emitStdout(
         JSON.stringify({
-          kind: 'violation',
-          reason: violationReason,
+          permissionDecision: 'deny',
+          permissionDecisionReason: violationReason,
         })
       );
       mockProc.emitClose(0);
@@ -295,7 +336,9 @@ describe('ProbityAdapter', () => {
       const result = await resultPromise;
 
       expect(result.kind).toBe('violation');
-      expect(result.reason).toBe(violationReason);
+      if (result.kind === 'violation') {
+        expect(result.reason).toBe(violationReason);
+      }
     });
   });
 
@@ -309,13 +352,9 @@ describe('ProbityAdapter', () => {
         spawn: mockSpawn as any,
         debugPath,
       });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'npm run test',
-      };
+      const action = makeBashPayload('npm run test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;
@@ -332,13 +371,9 @@ describe('ProbityAdapter', () => {
       const mockSpawn = vi.fn(() => mockProc);
 
       const adapter = new ProbityAdapter({ spawn: mockSpawn as any });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'echo test',
-      };
+      const action = makeBashPayload('echo test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;
@@ -358,13 +393,9 @@ describe('ProbityAdapter', () => {
         configPath,
         debugPath,
       });
-      const action: ProbityAction = {
-        kind: 'command',
-        command: 'test',
-      };
+      const action = makeBashPayload('test');
 
       const resultPromise = adapter.evaluateAction(action);
-      mockProc.emitStdout(JSON.stringify({ kind: 'pass' }));
       mockProc.emitClose(0);
 
       await resultPromise;

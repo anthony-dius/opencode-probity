@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createProbityHook } from '../preToolUse.ts';
 import type { ProbityAction } from '../../translators/payload.ts';
 
@@ -33,7 +33,6 @@ describe('Probity Hook - tool.execute.before', () => {
     });
 
     it('should allow bash commands by default', async () => {
-      // Mock adapter to avoid file I/O
       const mockAdapter = {
         evaluateAction: vi.fn(async () => ({ kind: 'pass' })),
       };
@@ -43,12 +42,10 @@ describe('Probity Hook - tool.execute.before', () => {
 
       await hook(input, output);
 
-      // Default should be to allow (no block)
       expect(output.block).toBeUndefined();
     });
 
     it('should allow write operations by default', async () => {
-      // Mock adapter to avoid file I/O
       const mockAdapter = {
         evaluateAction: vi.fn(async () => ({ kind: 'pass' })),
       };
@@ -64,7 +61,6 @@ describe('Probity Hook - tool.execute.before', () => {
     });
 
     it('should allow edit operations by default', async () => {
-      // Mock adapter to avoid file I/O
       const mockAdapter = {
         evaluateAction: vi.fn(async () => ({ kind: 'pass' })),
       };
@@ -89,14 +85,12 @@ describe('Probity Hook - tool.execute.before', () => {
 
       await hook(input, output);
 
-      // Should not modify output for non-matching tools
       expect(output.block).toBeUndefined();
     });
   });
 
   describe('hook with probity rules', () => {
     it('should block write if probity rule violation occurs', async () => {
-      // Mock adapter that returns violation
       const mockAdapter = {
         evaluateAction: vi.fn(async () => ({
           kind: 'violation' as const,
@@ -247,14 +241,18 @@ describe('Probity Hook - tool.execute.before', () => {
     });
   });
 
-  describe('payload translation', () => {
-    it('should translate bash command to probity action', async () => {
+  describe('payload translation to Copilot format', () => {
+    it('should translate bash command to Copilot hook payload', async () => {
       const mockAdapter = {
         evaluateAction: vi.fn(async (action: ProbityAction) => {
-          expect(action).toEqual({
-            kind: 'command',
-            command: 'npm run build',
-          });
+          expect(action.sessionId).toBe('opencode');
+          expect(action.toolName).toBe('bash');
+          expect(typeof action.timestamp).toBe('number');
+          expect(typeof action.cwd).toBe('string');
+
+          const toolArgs = JSON.parse(action.toolArgs);
+          expect(toolArgs).toEqual({ command: 'npm run build' });
+
           return { kind: 'pass' };
         }),
       };
@@ -270,14 +268,17 @@ describe('Probity Hook - tool.execute.before', () => {
       expect(mockAdapter.evaluateAction).toHaveBeenCalled();
     });
 
-    it('should translate write to probity write action', async () => {
+    it('should translate write to Copilot create payload', async () => {
       const mockAdapter = {
         evaluateAction: vi.fn(async (action: ProbityAction) => {
-          expect(action).toEqual({
-            kind: 'write',
+          expect(action.toolName).toBe('create');
+
+          const toolArgs = JSON.parse(action.toolArgs);
+          expect(toolArgs).toEqual({
             path: '/src/index.ts',
-            content: 'export const x = 1;',
+            file_text: 'export const x = 1;',
           });
+
           return { kind: 'pass' };
         }),
       };
@@ -293,14 +294,18 @@ describe('Probity Hook - tool.execute.before', () => {
       expect(mockAdapter.evaluateAction).toHaveBeenCalled();
     });
 
-    it('should translate edit to probity write action', async () => {
+    it('should translate edit to Copilot edit payload', async () => {
       const mockAdapter = {
         evaluateAction: vi.fn(async (action: ProbityAction) => {
-          expect(action).toEqual({
-            kind: 'write',
+          expect(action.toolName).toBe('edit');
+
+          const toolArgs = JSON.parse(action.toolArgs);
+          expect(toolArgs).toEqual({
             path: '/src/index.ts',
-            content: 'export const y = 2;',
+            old_str: '',
+            new_str: 'export const y = 2;',
           });
+
           return { kind: 'pass' };
         }),
       };
@@ -333,7 +338,6 @@ describe('Probity Hook - tool.execute.before', () => {
 
       await hook(input, output);
 
-      // Should allow on error (safe-fail)
       expect(output.block).toBeUndefined();
     });
 
@@ -345,7 +349,6 @@ describe('Probity Hook - tool.execute.before', () => {
       const input: MockToolInput = { tool: 'Write' };
       const output: MockToolOutput = { args: {} };
 
-      // Should not throw, just skip validation
       await hook(input, output);
       expect(mockAdapter.evaluateAction).not.toHaveBeenCalled();
     });
@@ -391,7 +394,6 @@ describe('Probity Hook - tool.execute.before', () => {
 
       await hook(input, output);
 
-      // Hook should work with debugPath option
       expect(mockAdapter.evaluateAction).toHaveBeenCalled();
     });
   });

@@ -11,6 +11,8 @@
 import type { Plugin } from '@opencode-ai/plugin';
 import { createProbityHook } from './hooks/preToolUse.ts';
 
+export { createProbityHook } from './hooks/preToolUse.ts';
+
 /**
  * Probity Plugin for OpenCode
  *

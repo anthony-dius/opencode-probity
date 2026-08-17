@@ -3,11 +3,19 @@ import type { ChildProcess } from 'child_process';
 import type { ProbityAction } from '../translators/payload.ts';
 
 /**
- * Probity verdict response types
+ * Probity verdict response types (internal to the plugin)
  */
 export type ProbityVerdict =
   | { kind: 'pass' }
   | { kind: 'violation'; reason: string };
+
+/**
+ * GitHub Copilot hook response format returned by probity CLI
+ */
+interface CopilotHookResponse {
+  permissionDecision: 'allow' | 'deny' | 'ask';
+  permissionDecisionReason?: string;
+}
 
 /**
  * ProbityAdapter options
@@ -21,7 +29,8 @@ interface ProbityAdapterOptions {
 
 /**
  * Adapter that communicates with probity CLI
- * Emulates the GitHub Copilot hook interface
+ * Sends GitHub Copilot preToolUse hook payloads and translates
+ * Copilot hook responses back to internal verdict types.
  */
 export class ProbityAdapter {
   private configPath?: string;
@@ -40,7 +49,7 @@ export class ProbityAdapter {
    * Evaluate an action against probity rules
    * Spawns probity subprocess and returns verdict
    *
-   * @param action - The probity action to evaluate
+   * @param action - The Copilot hook payload to evaluate
    * @returns Promise resolving to probity verdict
    */
   async evaluateAction(action: ProbityAction): Promise<ProbityVerdict> {
@@ -70,24 +79,47 @@ export class ProbityAdapter {
 
       // Handle process close
       proc.on('close', (code: number) => {
-        // If subprocess exited with error or no valid response, default to pass
-        if (code !== 0 || !stdoutData.trim()) {
+        // If subprocess exited with error, default to pass (safe-fail)
+        if (code !== 0) {
+          resolve({ kind: 'pass' });
+          return;
+        }
+
+        // Empty stdout means "no opinion" — probity allows the action
+        if (!stdoutData.trim()) {
           resolve({ kind: 'pass' });
           return;
         }
 
         try {
-          const verdict = JSON.parse(stdoutData) as ProbityVerdict;
-          resolve(verdict);
+          const response = JSON.parse(stdoutData) as CopilotHookResponse;
+          resolve(this.translateCopilotResponse(response));
         } catch {
           // If JSON parsing fails, default to pass (safe-fail)
           resolve({ kind: 'pass' });
         }
       });
 
-      // Send the action to probity via stdin
+      // Send the Copilot hook payload to probity via stdin
       proc.stdin?.write(JSON.stringify(action));
       proc.stdin?.end();
     });
+  }
+
+  /**
+   * Translate a GitHub Copilot hook response to an internal ProbityVerdict.
+   *
+   * - "allow" or empty → pass
+   * - "deny" or "ask"  → violation with reason
+   */
+  private translateCopilotResponse(response: CopilotHookResponse): ProbityVerdict {
+    if (response.permissionDecision === 'allow') {
+      return { kind: 'pass' };
+    }
+
+    return {
+      kind: 'violation',
+      reason: response.permissionDecisionReason ?? 'Blocked by probity rule',
+    };
   }
 }
