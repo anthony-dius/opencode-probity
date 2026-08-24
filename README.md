@@ -24,7 +24,7 @@ Add to your `opencode.json`:
 Create a `probity.config.ts` in your project root:
 
 ```typescript
-import { defineConfig, enforceTdd } from '@nizos/probity'
+import { defineConfig, enforceTdd } from '@nizos/probity';
 
 export default defineConfig({
   rules: [
@@ -33,7 +33,7 @@ export default defineConfig({
       rules: [enforceTdd()],
     },
   ],
-})
+});
 ```
 
 See the [probity documentation](https://github.com/nizos/probity) for available rules and configuration options.
@@ -50,7 +50,23 @@ mise run format   # Format code
 
 ## Debug Logging
 
-See [DEBUG.md](DEBUG.md) for how to enable debug output.
+Enable debug logging with `PROBITY_DEBUG`:
+
+```bash
+# Writes JSONL trace logs to ~/.cache/opencode/probity-debug.jsonl
+PROBITY_DEBUG=1 opencode
+
+# Or specify a custom log file
+PROBITY_DEBUG=/path/to/debug.jsonl opencode
+```
+
+View live debug logs:
+
+```bash
+tail -f ~/.cache/opencode/probity-debug.jsonl | jq -C '.'
+```
+
+See [DEBUG.md](DEBUG.md) for full configuration options.
 
 ## License
 

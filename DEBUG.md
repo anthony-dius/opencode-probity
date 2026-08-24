@@ -4,6 +4,20 @@ The Probity plugin supports Probity's `--debug` flag to log all hook invocations
 
 ## Usage
 
+### Via Environment Variable (Recommended)
+
+Enable debug logging globally or per command by setting `PROBITY_DEBUG`:
+
+```bash
+# Default path (~/.cache/opencode/probity-debug.jsonl)
+PROBITY_DEBUG=1 opencode
+
+# Or specify a custom log path
+PROBITY_DEBUG=/tmp/probity-debug.jsonl opencode
+```
+
+You can also use `OPENCODE_PROBITY_DEBUG`.
+
 ### Via Hook Options
 
 ```typescript
@@ -14,7 +28,7 @@ const hook = createProbityHook({
 });
 ```
 
-### Via OpenCode Plugin
+### Via Custom OpenCode Plugin Wrapper
 
 Create `.opencode/plugins/probity-debug.ts`:
 

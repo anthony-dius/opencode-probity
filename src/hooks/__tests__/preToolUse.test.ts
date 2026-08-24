@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { createProbityHook } from '../preToolUse.ts';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { createProbityHook, resolveDebugPath } from '../preToolUse.ts';
 
 function mockAdapter(verdict: { kind: 'pass' } | { kind: 'violation'; reason: string }) {
   return { evaluateAction: vi.fn(async () => verdict) };
@@ -198,6 +198,53 @@ describe('createProbityHook', () => {
       await hook({ tool: 'Write' }, output);
 
       expect(output.block).toBeUndefined();
+    });
+  });
+
+  describe('resolveDebugPath', () => {
+    const originalEnv = { ...process.env };
+
+    beforeEach(() => {
+      delete process.env.PROBITY_DEBUG;
+      delete process.env.OPENCODE_PROBITY_DEBUG;
+    });
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('should return undefined when no debug options or env vars are set', () => {
+      expect(resolveDebugPath()).toBeUndefined();
+    });
+
+    it('should return explicit path from debugOption', () => {
+      expect(resolveDebugPath('/tmp/custom-debug.jsonl')).toBe('/tmp/custom-debug.jsonl');
+    });
+
+    it('should expand "1" to default home cache path', () => {
+      process.env.HOME = '/test/home';
+      expect(resolveDebugPath('1')).toBe('/test/home/.cache/opencode/probity-debug.jsonl');
+    });
+
+    it('should expand "true" to default home cache path', () => {
+      process.env.HOME = '/test/home';
+      expect(resolveDebugPath('true')).toBe('/test/home/.cache/opencode/probity-debug.jsonl');
+    });
+
+    it('should read from PROBITY_DEBUG environment variable', () => {
+      process.env.PROBITY_DEBUG = '/tmp/from-env.jsonl';
+      expect(resolveDebugPath()).toBe('/tmp/from-env.jsonl');
+    });
+
+    it('should prioritize OPENCODE_PROBITY_DEBUG over PROBITY_DEBUG', () => {
+      process.env.PROBITY_DEBUG = '/tmp/probity.jsonl';
+      process.env.OPENCODE_PROBITY_DEBUG = '/tmp/opencode.jsonl';
+      expect(resolveDebugPath()).toBe('/tmp/opencode.jsonl');
+    });
+
+    it('should prioritize explicit parameter over environment variables', () => {
+      process.env.PROBITY_DEBUG = '/tmp/from-env.jsonl';
+      expect(resolveDebugPath('/tmp/explicit.jsonl')).toBe('/tmp/explicit.jsonl');
     });
   });
 });
