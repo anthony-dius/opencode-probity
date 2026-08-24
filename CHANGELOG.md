@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/anthony-dius/opencode-probity/compare/v0.2.0...v0.3.0) (2026-08-24)
+
+
+### Features
+
+* configure debug options via opencode.json ([3960e36](https://github.com/anthony-dius/opencode-probity/commit/3960e36fcd5e42b632046e138e6a9dc2dd94df11))
+
 ## [0.2.0](https://github.com/anthony-dius/opencode-probity/compare/v0.1.2...v0.2.0) (2026-08-24)
 
 
