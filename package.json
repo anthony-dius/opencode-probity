@@ -1,6 +1,6 @@
 {
   "name": "opencode-probity",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "OpenCode plugin that enforces TDD workflow using probity",
   "keywords": [
     "opencode",
