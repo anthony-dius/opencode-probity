@@ -2,6 +2,14 @@
   "name": "opencode-probity",
   "version": "0.1.0",
   "description": "OpenCode plugin that enforces TDD workflow using probity",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "probity",
+    "tdd",
+    "test-driven-development"
+  ],
+  "license": "MIT",
   "author": {
     "name": "Anthony Roy",
     "email": "aroy@dius.com.au"
@@ -16,6 +24,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/anthony-dius/opencode-probity"
+  },
+  "homepage": "https://github.com/anthony-dius/opencode-probity#readme",
+  "bugs": {
+    "url": "https://github.com/anthony-dius/opencode-probity/issues"
   },
   "publishConfig": {
     "access": "public",
