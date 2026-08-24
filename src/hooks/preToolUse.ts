@@ -34,7 +34,7 @@ interface ToolOutput {
   };
 }
 
-const EVALUATED_TOOLS = new Set(['Bash', 'Write', 'Edit']);
+const EVALUATED_TOOLS = new Set(['bash', 'write', 'edit']);
 
 /**
  * `--agent opencode` isn't in a released @nizos/probity version yet
@@ -54,7 +54,7 @@ export function createProbityHook(options?: ProbityHookOptions) {
   const debugPath = options?.debugPath;
 
   return async (input: ToolInput, output: ToolOutput): Promise<void> => {
-    if (!EVALUATED_TOOLS.has(input.tool)) {
+    if (!input.tool || !EVALUATED_TOOLS.has(input.tool.toLowerCase())) {
       return;
     }
 

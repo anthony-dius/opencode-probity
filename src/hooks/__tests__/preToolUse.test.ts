@@ -13,24 +13,33 @@ describe('createProbityHook', () => {
   });
 
   describe('tool matching', () => {
-    it.each(['Bash', 'Write', 'Edit'])('should evaluate %s', async (tool) => {
-      const adapter = mockAdapter({ kind: 'pass' });
-      const hook = createProbityHook({ adapter: adapter as any });
+    it.each(['bash', 'write', 'edit', 'Bash', 'Write', 'Edit'])(
+      'should evaluate %s',
+      async (tool) => {
+        const adapter = mockAdapter({ kind: 'pass' });
+        const hook = createProbityHook({ adapter: adapter as any });
 
-      const args = tool === 'Bash' ? { command: 'echo hi' } : { filePath: '/f.ts', content: 'x' };
-      await hook({ tool }, { args });
+        const args =
+          tool.toLowerCase() === 'bash'
+            ? { command: 'echo hi' }
+            : { filePath: '/f.ts', content: 'x' };
+        await hook({ tool }, { args });
 
-      expect(adapter.evaluateAction).toHaveBeenCalled();
-    });
+        expect(adapter.evaluateAction).toHaveBeenCalled();
+      }
+    );
 
-    it.each(['Read', 'Grep', 'Glob', 'NotebookEdit'])('should skip %s', async (tool) => {
-      const adapter = mockAdapter({ kind: 'pass' });
-      const hook = createProbityHook({ adapter: adapter as any });
+    it.each(['read', 'grep', 'glob', 'notebookedit', 'Read', 'Grep', 'Glob', 'NotebookEdit'])(
+      'should skip %s',
+      async (tool) => {
+        const adapter = mockAdapter({ kind: 'pass' });
+        const hook = createProbityHook({ adapter: adapter as any });
 
-      await hook({ tool }, { args: {} });
+        await hook({ tool }, { args: {} });
 
-      expect(adapter.evaluateAction).not.toHaveBeenCalled();
-    });
+        expect(adapter.evaluateAction).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('verdicts', () => {
