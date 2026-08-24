@@ -50,15 +50,19 @@ mise run format   # Format code
 
 ## Debug Logging
 
-Enable debug logging with `PROBITY_DEBUG`:
+Enable debug logging in `opencode.json`:
 
-```bash
-# Writes JSONL trace logs to ~/.cache/opencode/probity-debug.jsonl
-PROBITY_DEBUG=1 opencode
-
-# Or specify a custom log file
-PROBITY_DEBUG=/path/to/debug.jsonl opencode
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-probity"],
+  "probity": {
+    "debug": true
+  }
+}
 ```
+
+When `debug: true`, trace logs are written to `~/.cache/opencode/probity-debug.jsonl`. You can also provide a custom relative path (e.g., `"debug": "./logs/probity.jsonl"`).
 
 View live debug logs:
 

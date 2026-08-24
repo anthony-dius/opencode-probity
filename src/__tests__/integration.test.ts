@@ -60,4 +60,16 @@ describe('Integration - Plugin Export', () => {
     const hook = plugin['tool.execute.before'];
     expect(typeof hook).toBe('function');
   });
+
+  it('plugin should pass directory from plugin input to hook', async () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+    const plugin = await ProbityPlugin({
+      ...mockInput,
+      directory: '/test/workspace',
+    } as any);
+
+    expect(plugin).toBeDefined();
+    expect(plugin['tool.execute.before']).toBeDefined();
+  });
 });

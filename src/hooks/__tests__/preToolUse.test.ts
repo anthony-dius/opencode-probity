@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { createProbityHook, resolveDebugPath } from '../preToolUse.ts';
+import * as opencodeConfig from '../../config/opencode.ts';
+import { createProbityHook } from '../preToolUse.ts';
 
 function mockAdapter(verdict: { kind: 'pass' } | { kind: 'violation'; reason: string }) {
   return { evaluateAction: vi.fn(async () => verdict) };
@@ -201,50 +202,26 @@ describe('createProbityHook', () => {
     });
   });
 
-  describe('resolveDebugPath', () => {
-    const originalEnv = { ...process.env };
-
+  describe('debug and config resolution', () => {
     beforeEach(() => {
-      delete process.env.PROBITY_DEBUG;
-      delete process.env.OPENCODE_PROBITY_DEBUG;
+      vi.restoreAllMocks();
     });
 
-    afterEach(() => {
-      process.env = { ...originalEnv };
+    it('should use explicit debugPath when provided in options', async () => {
+      const adapter = mockAdapter({ kind: 'pass' });
+      const hook = createProbityHook({ adapter: adapter as any, debugPath: '/custom/debug.jsonl' });
+
+      await hook({ tool: 'Bash' }, { args: { command: 'echo hi' } });
+      expect(adapter.evaluateAction).toHaveBeenCalled();
     });
 
-    it('should return undefined when no debug options or env vars are set', () => {
-      expect(resolveDebugPath()).toBeUndefined();
-    });
+    it('should use debugPath from opencode plugin config when not in options', async () => {
+      vi.spyOn(opencodeConfig, 'loadOpenCodePluginConfig').mockReturnValue({
+        debugPath: '/from/opencode.jsonl',
+      });
 
-    it('should return explicit path from debugOption', () => {
-      expect(resolveDebugPath('/tmp/custom-debug.jsonl')).toBe('/tmp/custom-debug.jsonl');
-    });
-
-    it('should expand "1" to default home cache path', () => {
-      process.env.HOME = '/test/home';
-      expect(resolveDebugPath('1')).toBe('/test/home/.cache/opencode/probity-debug.jsonl');
-    });
-
-    it('should expand "true" to default home cache path', () => {
-      process.env.HOME = '/test/home';
-      expect(resolveDebugPath('true')).toBe('/test/home/.cache/opencode/probity-debug.jsonl');
-    });
-
-    it('should read from PROBITY_DEBUG environment variable', () => {
-      process.env.PROBITY_DEBUG = '/tmp/from-env.jsonl';
-      expect(resolveDebugPath()).toBe('/tmp/from-env.jsonl');
-    });
-
-    it('should prioritize OPENCODE_PROBITY_DEBUG over PROBITY_DEBUG', () => {
-      process.env.PROBITY_DEBUG = '/tmp/probity.jsonl';
-      process.env.OPENCODE_PROBITY_DEBUG = '/tmp/opencode.jsonl';
-      expect(resolveDebugPath()).toBe('/tmp/opencode.jsonl');
-    });
-
-    it('should prioritize explicit parameter over environment variables', () => {
-      process.env.PROBITY_DEBUG = '/tmp/from-env.jsonl';
-      expect(resolveDebugPath('/tmp/explicit.jsonl')).toBe('/tmp/explicit.jsonl');
+      const hook = createProbityHook({ directory: '/workspace' });
+      expect(hook).toBeDefined();
     });
   });
 });

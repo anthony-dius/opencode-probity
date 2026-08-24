@@ -4,19 +4,45 @@ The Probity plugin supports Probity's `--debug` flag to log all hook invocations
 
 ## Usage
 
-### Via Environment Variable (Recommended)
+### Via opencode.json (Recommended)
 
-Enable debug logging globally or per command by setting `PROBITY_DEBUG`:
+Enable debug logging in your project's `opencode.json` (or `opencode.jsonc`):
 
-```bash
-# Default path (~/.cache/opencode/probity-debug.jsonl)
-PROBITY_DEBUG=1 opencode
-
-# Or specify a custom log path
-PROBITY_DEBUG=/tmp/probity-debug.jsonl opencode
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-probity"],
+  "probity": {
+    "debug": true
+  }
+}
 ```
 
-You can also use `OPENCODE_PROBITY_DEBUG`.
+When `debug: true` is set, logs are written to `~/.cache/opencode/probity-debug.jsonl`.
+
+You can also specify a custom debug log file path:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-probity"],
+  "probity": {
+    "debug": "./logs/probity-debug.jsonl"
+  }
+}
+```
+
+Or using `debugPath`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-probity"],
+  "probity": {
+    "debugPath": "./.opencode/probity-debug.jsonl"
+  }
+}
+```
 
 ### Via Hook Options
 
@@ -26,33 +52,6 @@ import { createProbityHook } from 'opencode-probity';
 const hook = createProbityHook({
   debugPath: '/tmp/probity-debug.jsonl',
 });
-```
-
-### Via Custom OpenCode Plugin Wrapper
-
-Create `.opencode/plugins/probity-debug.ts`:
-
-```typescript
-import type { Plugin } from '@opencode-ai/plugin';
-import { createProbityHook } from 'opencode-probity';
-
-export const ProbityDebugPlugin: Plugin = async ({ client }) => {
-  const debugPath = `${process.env.HOME}/.cache/opencode/probity-debug.jsonl`;
-  const hook = createProbityHook({ client, debugPath });
-
-  return {
-    'tool.execute.before': hook,
-  };
-};
-```
-
-Then set `opencode.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["./.opencode/plugins/probity-debug.ts"]
-}
 ```
 
 ## Debug Output Format
