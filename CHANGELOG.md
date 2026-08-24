@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/anthony-dius/opencode-probity/compare/v0.1.2...v0.2.0) (2026-08-24)
+
+
+### Features
+
+* support PROBITY_DEBUG environment variable for debug logging ([6eba571](https://github.com/anthony-dius/opencode-probity/commit/6eba571fd110534a16381f3ac564a2d2ede569f4))
+
 ## [0.1.2](https://github.com/anthony-dius/opencode-probity/compare/v0.1.1...v0.1.2) (2026-08-24)
 
 
