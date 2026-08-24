@@ -1,87 +1,56 @@
 # opencode-probity
 
-enforce TDD workflow using probity
+OpenCode plugin that enforces TDD workflow using [probity](https://github.com/nizos/probity).
 
-> An OpenCode plugin created from the [opencode-plugin-template](https://github.com/zenobi-us/opencode-plugin-template)
+## What it does
 
-## Features
+Intercepts tool calls (Bash, Write, Edit) in OpenCode and evaluates them against probity rules before execution. When a rule violation is detected (e.g. writing implementation code without a failing test first), the tool call is blocked.
 
-- 🏗️ TypeScript-based plugin architecture
-- 🔧 Mise task runner integration
-- 📦 Bun/npm build tooling
-- ✨ ESLint + Prettier formatting
-- 🧪 Vitest testing setup
-- 🚀 GitHub Actions CI/CD
-- 📝 Release automation with release-please
+Payloads are passed straight through to `npx @nizos/probity --agent opencode`, which understands OpenCode's native `tool.execute.before` shape directly — no translation layer needed.
 
-## Getting Started
+## Installation
 
-1. **Clone this template:**
-
-   ```bash
-   cp -r opencode-plugin-template your-plugin-name
-   cd your-plugin-name
-   ```
-
-2. **Update package.json:**
-   - Change `name` to your plugin name
-   - Update `description`
-   - Update `repository.url`
-
-3. **Install dependencies:**
-
-   ```bash
-   bun install
-   ```
-
-4. **Implement your plugin in `src/index.ts`:**
-
-   ```typescript
-   import type { Plugin } from '@opencode-ai/plugin';
-
-   export const YourPlugin: Plugin = async (ctx) => {
-     return {
-       tool: {
-         // Your plugin tools here
-       },
-     };
-   };
-   ```
-
-5. **Test your plugin:**
-   ```bash
-   mise run test
-   ```
-
-## Development
-
-- `mise run build` - Build the plugin
-- `mise run test` - Run tests
-- `mise run lint` - Lint code
-- `mise run lint:fix` - Fix linting issues
-- `mise run format` - Format code with Prettier
-
-## Installation in OpenCode
-
-Create or edit `~/.config/opencode/config.json`:
+Add to your `opencode.json`:
 
 ```json
 {
-  "plugins": ["opencode-probity"]
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-probity"]
 }
 ```
 
-## Author
+## Configuration
 
-Anthony Roy <aroy@dius.com.au>
+Create a `probity.config.ts` in your project root:
 
-## Repository
+```typescript
+import { defineConfig, enforceTdd } from '@nizos/probity'
 
-https://github.com/anthony-dius/opencode-probity
+export default defineConfig({
+  rules: [
+    {
+      files: ['src/**'],
+      rules: [enforceTdd()],
+    },
+  ],
+})
+```
 
-## Contributing
+See the [probity documentation](https://github.com/nizos/probity) for available rules and configuration options.
 
-Contributions are welcome! Please file issues or submit pull requests on the GitHub repository.
+## Development
+
+```bash
+bun install
+mise run build    # Build the plugin
+mise run test     # Run tests
+mise run lint     # Lint code
+mise run format   # Format code
+```
+
+## Debug Logging
+
+See [DEBUG.md](DEBUG.md) for how to enable debug output.
 
 ## License
 

@@ -1,5 +1,5 @@
 import { ProbityAdapter } from '../adapters/probity.ts';
-import { buildProbityPayload } from '../translators/payload.ts';
+import type { ProbityAction } from '../adapters/probity.ts';
 import { writeTranscript } from '../translators/transcript.ts';
 import { findProbityConfig } from '../config/discovery.ts';
 
@@ -9,6 +9,7 @@ import { findProbityConfig } from '../config/discovery.ts';
  */
 interface SessionClient {
   session: {
+    // eslint-disable-next-line no-unused-vars
     messages(opts: { path: { id: string } }): Promise<{ data?: unknown[] }>;
   };
 }
@@ -16,7 +17,6 @@ interface SessionClient {
 interface ProbityHookOptions {
   adapter?: ProbityAdapter;
   client?: SessionClient;
-  debug?: boolean;
   configPath?: string;
   debugPath?: string;
 }
@@ -24,22 +24,25 @@ interface ProbityHookOptions {
 interface ToolInput {
   tool: string;
   sessionID?: string;
+  callID?: string;
 }
 
 interface ToolOutput {
-  args: {
-    command?: string;
-    filePath?: string;
-    content?: string;
-    [key: string]: unknown;
-  };
-  allow?: boolean;
+  args: Record<string, unknown>;
   block?: {
     reason: string;
   };
 }
 
-const EVALUATED_TOOLS = new Set(['Bash', 'Write', 'Edit', 'NotebookEdit']);
+const EVALUATED_TOOLS = new Set(['Bash', 'Write', 'Edit']);
+
+/**
+ * `--agent opencode` isn't in a released @nizos/probity version yet
+ * (nizos/probity#65 is still under review). Pin to the fork/branch that
+ * implements it so the plugin works today; switch this back to
+ * `@nizos/probity` once that PR merges and ships.
+ */
+const PROBITY_PACKAGE_SPEC = 'github:anthony-dius/probity#001-opencode-vendor-support';
 
 /**
  * Create a Probity hook for OpenCode's tool.execute.before event.
@@ -47,7 +50,6 @@ const EVALUATED_TOOLS = new Set(['Bash', 'Write', 'Edit', 'NotebookEdit']);
 export function createProbityHook(options?: ProbityHookOptions) {
   let adapter = options?.adapter;
   const client = options?.client;
-  const debug = options?.debug ?? false;
   const configPath = options?.configPath;
   const debugPath = options?.debugPath;
 
@@ -62,8 +64,8 @@ export function createProbityHook(options?: ProbityHookOptions) {
 
         adapter = new ProbityAdapter({
           configPath: resolvedConfigPath,
-          debug,
           debugPath,
+          packageSpec: PROBITY_PACKAGE_SPEC,
         });
       }
 
@@ -80,22 +82,22 @@ export function createProbityHook(options?: ProbityHookOptions) {
         }
       }
 
-      const payload = buildProbityPayload(input.tool, output.args, transcriptPath);
-
-      if (!payload) {
-        return;
-      }
+      const payload: ProbityAction = {
+        tool: input.tool,
+        sessionID: input.sessionID,
+        callID: input.callID,
+        args: output.args,
+        cwd: process.cwd(),
+        ...(transcriptPath ? { transcript_path: transcriptPath } : {}),
+      };
 
       const verdict = await adapter.evaluateAction(payload);
 
       if (verdict.kind === 'violation') {
         output.block = { reason: verdict.reason };
       }
-    } catch (error) {
-      if (debug) {
-        const message = error instanceof Error ? error.toString() : String(error);
-        console.error('[PROBITY HOOK ERROR]', message);
-      }
+    } catch {
+      // Safe-fail: allow tool execution on error
     }
   };
 }

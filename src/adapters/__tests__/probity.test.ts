@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ProbityAdapter } from '../probity.ts';
-import type { ProbityAction } from '../../translators/payload.ts';
+import type { ProbityAction } from '../probity.ts';
 import { EventEmitter } from 'events';
 
 class MockChildProcess extends EventEmitter {
@@ -18,13 +18,13 @@ class MockChildProcess extends EventEmitter {
 }
 
 function bashPayload(): ProbityAction {
-  return { tool_name: 'Bash', tool_input: { command: 'npm test' }, cwd: '/workspace' };
+  return { tool: 'Bash', args: { command: 'npm test' }, cwd: '/workspace' };
 }
 
 function writePayload(): ProbityAction {
   return {
-    tool_name: 'Write',
-    tool_input: { file_path: '/src/file.ts', content: 'export const x = 1;' },
+    tool: 'Write',
+    args: { filePath: '/src/file.ts', content: 'export const x = 1;' },
     cwd: '/workspace',
   };
 }
@@ -39,7 +39,6 @@ describe('ProbityAdapter', () => {
       expect(
         new ProbityAdapter({
           configPath: '/c.ts',
-          debug: true,
           debugPath: '/d.jsonl',
           spawn: vi.fn() as any,
         })
@@ -79,53 +78,34 @@ describe('ProbityAdapter', () => {
       expect(await p).toEqual({ kind: 'pass' });
     });
 
-    it('should parse claude-code deny response as violation', async () => {
+    it('should parse a block response as violation', async () => {
       const proc = new MockChildProcess();
       const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
       const p = adapter.evaluateAction(writePayload());
-      proc.emitStdout(
-        JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'deny',
-            permissionDecisionReason: 'Probity: Missing test',
-          },
-        })
-      );
+      proc.emitStdout(JSON.stringify({ decision: 'block', reason: 'Probity: Missing test' }));
       proc.emitClose(0);
 
       expect(await p).toEqual({ kind: 'violation', reason: 'Probity: Missing test' });
     });
 
-    it('should parse claude-code allow response as pass', async () => {
+    it('should treat any non-block decision as pass', async () => {
       const proc = new MockChildProcess();
       const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
       const p = adapter.evaluateAction(bashPayload());
-      proc.emitStdout(
-        JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'allow',
-          },
-        })
-      );
+      proc.emitStdout(JSON.stringify({ decision: 'allow' }));
       proc.emitClose(0);
 
       expect(await p).toEqual({ kind: 'pass' });
     });
 
-    it('should provide default reason when deny has no reason', async () => {
+    it('should provide default reason when block has no reason', async () => {
       const proc = new MockChildProcess();
       const adapter = new ProbityAdapter({ spawn: vi.fn(() => proc) as any });
 
       const p = adapter.evaluateAction(writePayload());
-      proc.emitStdout(
-        JSON.stringify({
-          hookSpecificOutput: { permissionDecision: 'deny' },
-        })
-      );
+      proc.emitStdout(JSON.stringify({ decision: 'block' }));
       proc.emitClose(0);
 
       expect(await p).toEqual({ kind: 'violation', reason: 'Blocked by probity rule' });
@@ -146,7 +126,7 @@ describe('ProbityAdapter', () => {
   });
 
   describe('CLI flags', () => {
-    it('should spawn with --agent claude-code', async () => {
+    it('should spawn with --agent opencode', async () => {
       const proc = new MockChildProcess();
       const spawn = vi.fn(() => proc);
       const adapter = new ProbityAdapter({ spawn: spawn as any });
@@ -157,7 +137,30 @@ describe('ProbityAdapter', () => {
 
       expect(spawn).toHaveBeenCalledWith(
         'npx',
-        expect.arrayContaining(['@nizos/probity', '--agent', 'claude-code']),
+        expect.arrayContaining(['@nizos/probity', '--agent', 'opencode']),
+        expect.any(Object)
+      );
+    });
+
+    it('should use a custom packageSpec when provided', async () => {
+      const proc = new MockChildProcess();
+      const spawn = vi.fn(() => proc);
+      const adapter = new ProbityAdapter({
+        spawn: spawn as any,
+        packageSpec: 'github:anthony-dius/probity#001-opencode-vendor-support',
+      });
+
+      const p = adapter.evaluateAction(bashPayload());
+      proc.emitClose(0);
+      await p;
+
+      expect(spawn).toHaveBeenCalledWith(
+        'npx',
+        expect.arrayContaining([
+          'github:anthony-dius/probity#001-opencode-vendor-support',
+          '--agent',
+          'opencode',
+        ]),
         expect.any(Object)
       );
     });

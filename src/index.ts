@@ -2,7 +2,7 @@
  * OpenCode Probity Plugin
  *
  * This plugin integrates Probity tool evaluation into OpenCode.
- * It intercepts tool usage (Bash, Write, Edit, NotebookEdit) and runs them
+ * It intercepts tool usage (Bash, Write, Edit) and runs them
  * against probity rules configured in probity.config.ts
  *
  * Probity enforces development patterns like TDD through AI-guided rules.
@@ -11,7 +11,7 @@
 import type { Plugin } from '@opencode-ai/plugin';
 import { createProbityHook } from './hooks/preToolUse.ts';
 
-export { createProbityHook } from './hooks/preToolUse.ts';
+export { createProbityHook };
 
 /**
  * Probity Plugin for OpenCode

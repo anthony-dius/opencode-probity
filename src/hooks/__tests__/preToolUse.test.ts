@@ -13,18 +13,17 @@ describe('createProbityHook', () => {
   });
 
   describe('tool matching', () => {
-    it.each(['Bash', 'Write', 'Edit', 'NotebookEdit'])('should evaluate %s', async (tool) => {
+    it.each(['Bash', 'Write', 'Edit'])('should evaluate %s', async (tool) => {
       const adapter = mockAdapter({ kind: 'pass' });
       const hook = createProbityHook({ adapter: adapter as any });
 
-      const args =
-        tool === 'Bash' ? { command: 'echo hi' } : { filePath: '/f.ts', content: 'x' };
+      const args = tool === 'Bash' ? { command: 'echo hi' } : { filePath: '/f.ts', content: 'x' };
       await hook({ tool }, { args });
 
       expect(adapter.evaluateAction).toHaveBeenCalled();
     });
 
-    it.each(['Read', 'Grep', 'Glob'])('should skip %s', async (tool) => {
+    it.each(['Read', 'Grep', 'Glob', 'NotebookEdit'])('should skip %s', async (tool) => {
       const adapter = mockAdapter({ kind: 'pass' });
       const hook = createProbityHook({ adapter: adapter as any });
 
@@ -56,38 +55,56 @@ describe('createProbityHook', () => {
     });
   });
 
-  describe('payload translation', () => {
-    it('should send Bash payload with command', async () => {
+  describe('payload', () => {
+    it('should pass the tool, sessionID, callID, and raw args through unchanged', async () => {
       const adapter = mockAdapter({ kind: 'pass' });
       const hook = createProbityHook({ adapter: adapter as any });
 
-      await hook({ tool: 'Bash' }, { args: { command: 'npm test' } });
+      await hook(
+        { tool: 'Bash', sessionID: 'ses_1', callID: 'call_1' },
+        { args: { command: 'npm test' } }
+      );
 
       const payload = adapter.evaluateAction.mock.calls[0][0];
-      expect(payload.tool_name).toBe('Bash');
-      expect(payload.tool_input).toEqual({ command: 'npm test' });
+      expect(payload.tool).toBe('Bash');
+      expect(payload.sessionID).toBe('ses_1');
+      expect(payload.callID).toBe('call_1');
+      expect(payload.args).toEqual({ command: 'npm test' });
     });
 
-    it('should send Write payload with file_path and content', async () => {
+    it('should pass Write args through with camelCase filePath', async () => {
       const adapter = mockAdapter({ kind: 'pass' });
       const hook = createProbityHook({ adapter: adapter as any });
 
       await hook({ tool: 'Write' }, { args: { filePath: '/f.ts', content: 'x' } });
 
       const payload = adapter.evaluateAction.mock.calls[0][0];
-      expect(payload.tool_name).toBe('Write');
-      expect(payload.tool_input).toEqual({ file_path: '/f.ts', content: 'x' });
+      expect(payload.tool).toBe('Write');
+      expect(payload.args).toEqual({ filePath: '/f.ts', content: 'x' });
     });
 
-    it('should send Edit payload with old_string and new_string', async () => {
+    it('should pass Edit args through with oldString and newString', async () => {
       const adapter = mockAdapter({ kind: 'pass' });
       const hook = createProbityHook({ adapter: adapter as any });
 
-      await hook({ tool: 'Edit' }, { args: { filePath: '/f.ts', content: 'y' } });
+      await hook(
+        { tool: 'Edit' },
+        { args: { filePath: '/f.ts', oldString: 'old', newString: 'new' } }
+      );
 
       const payload = adapter.evaluateAction.mock.calls[0][0];
-      expect(payload.tool_name).toBe('Edit');
-      expect(payload.tool_input).toEqual({ file_path: '/f.ts', old_string: '', new_string: 'y' });
+      expect(payload.tool).toBe('Edit');
+      expect(payload.args).toEqual({ filePath: '/f.ts', oldString: 'old', newString: 'new' });
+    });
+
+    it('should include cwd', async () => {
+      const adapter = mockAdapter({ kind: 'pass' });
+      const hook = createProbityHook({ adapter: adapter as any });
+
+      await hook({ tool: 'Bash' }, { args: { command: 'echo hi' } });
+
+      const payload = adapter.evaluateAction.mock.calls[0][0];
+      expect(payload.cwd).toBe(process.cwd());
     });
   });
 
@@ -172,15 +189,6 @@ describe('createProbityHook', () => {
       await hook({ tool: 'Write' }, output);
 
       expect(output.block).toBeUndefined();
-    });
-
-    it('should skip when args are insufficient', async () => {
-      const adapter = mockAdapter({ kind: 'pass' });
-      const hook = createProbityHook({ adapter: adapter as any });
-
-      await hook({ tool: 'Write' }, { args: {} });
-
-      expect(adapter.evaluateAction).not.toHaveBeenCalled();
     });
   });
 });

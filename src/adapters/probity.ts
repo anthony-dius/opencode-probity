@@ -1,51 +1,68 @@
 import { spawn as defaultSpawn } from 'child_process';
 import type { ChildProcess } from 'child_process';
-import type { ProbityAction } from '../translators/payload.ts';
+
+/**
+ * Native OpenCode payload shape expected by probity's `--agent opencode` adapter.
+ * Mirrors the `tool.execute.before` hook input/output verbatim (camelCase args),
+ * so no translation is needed before handing it to the probity CLI.
+ */
+export interface ProbityAction {
+  tool: string;
+  sessionID?: string;
+  callID?: string;
+  args: Record<string, unknown>;
+  cwd: string;
+  transcript_path?: string;
+}
+
+/**
+ * Flat response shape probity's opencode adapter emits (matches Codex's format).
+ * Allow is represented as empty stdout rather than a JSON body.
+ */
+interface ProbityResponse {
+  decision: string;
+  reason?: string;
+}
 
 /**
  * Probity verdict — the plugin's internal representation.
  */
-export type ProbityVerdict =
-  | { kind: 'pass' }
-  | { kind: 'violation'; reason: string };
+export type ProbityVerdict = { kind: 'pass' } | { kind: 'violation'; reason: string };
 
 /**
- * Claude Code hook response shape returned by probity CLI.
+ * The npm/npx package spec to invoke for probity's CLI. Defaults to the
+ * published package; overridable to point at a fork or branch that isn't
+ * released yet (e.g. while nizos/probity#65 is still under review).
  */
-interface ClaudeCodeHookResponse {
-  hookSpecificOutput: {
-    permissionDecision: 'allow' | 'deny';
-    permissionDecisionReason?: string;
-  };
-}
+const DEFAULT_PACKAGE_SPEC = '@nizos/probity';
 
 interface ProbityAdapterOptions {
   configPath?: string;
-  debug?: boolean;
   debugPath?: string;
+  packageSpec?: string;
   spawn?: typeof defaultSpawn;
 }
 
 /**
- * Adapter that spawns the probity CLI with --agent claude-code
+ * Adapter that spawns the probity CLI with --agent opencode
  * and translates its response into a ProbityVerdict.
  */
 export class ProbityAdapter {
   private configPath?: string;
-  private debug: boolean;
   private debugPath?: string;
+  private packageSpec: string;
   private spawn: typeof defaultSpawn;
 
   constructor(options?: ProbityAdapterOptions) {
     this.configPath = options?.configPath;
-    this.debug = options?.debug ?? false;
     this.debugPath = options?.debugPath;
+    this.packageSpec = options?.packageSpec ?? DEFAULT_PACKAGE_SPEC;
     this.spawn = options?.spawn ?? defaultSpawn;
   }
 
   async evaluateAction(action: ProbityAction): Promise<ProbityVerdict> {
     return new Promise((resolve) => {
-      const args = ['@nizos/probity', '--agent', 'claude-code'];
+      const args = [this.packageSpec, '--agent', 'opencode'];
 
       if (this.configPath) {
         args.push('--config', this.configPath);
@@ -66,20 +83,19 @@ export class ProbityAdapter {
       });
 
       proc.on('close', (code: number) => {
-        // Non-zero exit or empty stdout → pass (safe-fail / "no opinion")
+        // Non-zero exit or empty stdout → pass (safe-fail / "no opinion" / allow)
         if (code !== 0 || !stdoutData.trim()) {
           resolve({ kind: 'pass' });
           return;
         }
 
         try {
-          const response = JSON.parse(stdoutData) as ClaudeCodeHookResponse;
-          const decision = response.hookSpecificOutput;
+          const response = JSON.parse(stdoutData) as ProbityResponse;
 
-          if (decision.permissionDecision === 'deny') {
+          if (response.decision === 'block') {
             resolve({
               kind: 'violation',
-              reason: decision.permissionDecisionReason ?? 'Blocked by probity rule',
+              reason: response.reason ?? 'Blocked by probity rule',
             });
           } else {
             resolve({ kind: 'pass' });

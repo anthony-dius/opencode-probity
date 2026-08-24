@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { writeTranscript } from '../transcript.ts';
 import { readFileSync, unlinkSync, existsSync } from 'fs';
-import { tmpdir } from 'os';
 
 function readLines(path: string): unknown[] {
   return readFileSync(path, 'utf-8')
@@ -21,7 +20,7 @@ afterEach(() => {
 });
 
 describe('writeTranscript', () => {
-  it('should convert a user text part to a user prompt entry', () => {
+  it('should write each message verbatim as a JSONL line', () => {
     const messages = [
       {
         info: { role: 'user' as const, id: 'msg1' },
@@ -34,28 +33,10 @@ describe('writeTranscript', () => {
 
     const lines = readLines(path);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toEqual({
-      type: 'user',
-      message: { content: [{ type: 'text', text: 'Add a calculator' }] },
-    });
+    expect(lines[0]).toEqual(messages[0]);
   });
 
-  it('should ignore text parts from assistant messages', () => {
-    const messages = [
-      {
-        info: { role: 'assistant' as const, id: 'msg1' },
-        parts: [{ type: 'text' as const, text: 'I will help you' }],
-      },
-    ];
-
-    const path = writeTranscript('test-session-2', messages);
-    cleanup.push(path);
-
-    const lines = readLines(path);
-    expect(lines).toHaveLength(0);
-  });
-
-  it('should convert a completed tool part to tool_use + tool_result', () => {
+  it('should preserve tool parts, including status, input, and output', () => {
     const messages = [
       {
         info: { role: 'assistant' as const, id: 'msg1' },
@@ -74,90 +55,15 @@ describe('writeTranscript', () => {
       },
     ];
 
-    const path = writeTranscript('test-session-3', messages);
-    cleanup.push(path);
-
-    const lines = readLines(path);
-    expect(lines).toHaveLength(2);
-
-    // tool_use
-    expect(lines[0]).toEqual({
-      type: 'assistant',
-      message: {
-        content: [{ type: 'tool_use', name: 'Bash', id: 'call_1', input: { command: 'bun test' } }],
-      },
-    });
-
-    // tool_result
-    expect(lines[1]).toEqual({
-      type: 'tool_result',
-      message: {
-        content: [{ type: 'tool_result', content: 'PASS 5 tests', tool_use_id: 'call_1' }],
-      },
-    });
-  });
-
-  it('should convert an errored tool part to tool_use + error result', () => {
-    const messages = [
-      {
-        info: { role: 'assistant' as const, id: 'msg1' },
-        parts: [
-          {
-            type: 'tool' as const,
-            tool: 'Bash',
-            callID: 'call_2',
-            state: {
-              status: 'error' as const,
-              input: { command: 'bad-cmd' },
-              error: 'command not found',
-            },
-          },
-        ],
-      },
-    ];
-
-    const path = writeTranscript('test-session-4', messages);
-    cleanup.push(path);
-
-    const lines = readLines(path);
-    expect(lines).toHaveLength(2);
-    expect(lines[1]).toEqual({
-      type: 'tool_result',
-      message: {
-        content: [
-          { type: 'tool_result', content: 'Error: command not found', tool_use_id: 'call_2' },
-        ],
-      },
-    });
-  });
-
-  it('should emit only tool_use for pending/running tools (no result yet)', () => {
-    const messages = [
-      {
-        info: { role: 'assistant' as const, id: 'msg1' },
-        parts: [
-          {
-            type: 'tool' as const,
-            tool: 'Write',
-            callID: 'call_3',
-            state: {
-              status: 'pending' as const,
-              input: { file_path: '/f.ts', content: 'x' },
-            },
-          },
-        ],
-      },
-    ];
-
-    const path = writeTranscript('test-session-5', messages);
+    const path = writeTranscript('test-session-2', messages);
     cleanup.push(path);
 
     const lines = readLines(path);
     expect(lines).toHaveLength(1);
-    expect((lines[0] as any).message.content[0].type).toBe('tool_use');
+    expect(lines[0]).toEqual(messages[0]);
   });
 
-  it('should handle a full TDD conversation', () => {
+  it('should write one line per message, preserving order', () => {
     const messages = [
       {
         info: { role: 'user' as const, id: 'u1' },
@@ -172,48 +78,26 @@ describe('writeTranscript', () => {
             callID: 'c1',
             state: {
               status: 'completed' as const,
-              input: { file_path: 'src/math.test.ts', content: 'test code' },
+              input: { filePath: 'src/math.test.ts', content: 'test code' },
               output: 'File written',
             },
           },
-          {
-            type: 'tool' as const,
-            tool: 'Bash',
-            callID: 'c2',
-            state: {
-              status: 'completed' as const,
-              input: { command: 'bun test' },
-              output: 'FAIL multiply is not defined',
-            },
-          },
         ],
       },
     ];
 
-    const path = writeTranscript('test-session-6', messages);
+    const path = writeTranscript('test-session-3', messages);
     cleanup.push(path);
 
     const lines = readLines(path);
-    // 1 user prompt + 2 tool_use + 2 tool_result = 5
-    expect(lines).toHaveLength(5);
+    expect(lines).toEqual(messages);
   });
 
-  it('should skip non-text non-tool part types', () => {
-    const messages = [
-      {
-        info: { role: 'assistant' as const, id: 'msg1' },
-        parts: [
-          { type: 'reasoning' as const, text: 'thinking...' },
-          { type: 'step-start' as const },
-        ],
-      },
-    ];
-
-    const path = writeTranscript('test-session-7', messages);
+  it('should return an empty file for no messages', () => {
+    const path = writeTranscript('test-session-4', []);
     cleanup.push(path);
 
-    const lines = readLines(path);
-    expect(lines).toHaveLength(0);
+    expect(readLines(path)).toEqual([]);
   });
 
   it('should write to the expected path', () => {

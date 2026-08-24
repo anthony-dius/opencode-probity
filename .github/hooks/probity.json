@@ -4,7 +4,7 @@
     "PreToolUse": [
       {
             "type": "command",
-            "bash": "npx @nizos/probity --agent github-copilot --debug .github/hooks/logs/probity.log"
+            "bash": "npx @nizos/probity --agent claude-code --debug .github/hooks/logs/probity.log"
       }
     ]
   }

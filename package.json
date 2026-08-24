@@ -1,10 +1,10 @@
 {
-  "name": "{{pluginName}}",
+  "name": "opencode-probity",
   "version": "0.1.0",
-  "description": "{{description}}",
+  "description": "OpenCode plugin that enforces TDD workflow using probity",
   "author": {
-    "name": "{{authorName}}",
-    "email": "{{authorEmail}}"
+    "name": "Anthony Roy",
+    "email": "aroy@dius.com.au"
   },
   "type": "module",
   "exports": {
@@ -15,15 +15,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "{{repositoryUrl}}"
+    "url": "https://github.com/anthony-dius/opencode-probity"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "files": [
-    "dist",
-    "src/version.ts"
+    "dist"
   ],
   "dependencies": {
     "@opencode-ai/plugin": "1.0.85"
