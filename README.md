@@ -40,6 +40,7 @@ See the [probity documentation](https://github.com/nizos/probity) for available 
 
 ## Development
 
+
 ```bash
 bun install
 mise run build    # Build the plugin
